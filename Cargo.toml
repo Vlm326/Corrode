@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-reqwest = "0.13.5"
-serde = "1.0.229"
+reqwest = { version = "0.13.5", features = ["json"] }
+serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 serde_toml = "0.0.1"
 sqlx = "0.9.0"
-tokio = "1.53.1"
+thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = ["process"] }
 toml = "1.1.6"
