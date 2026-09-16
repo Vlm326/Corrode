@@ -2,7 +2,7 @@
 poll_interval_secs = 60
 
 [github]
-token = "ghp_xxx"   # GitHub personal access token 
+token = "ghp_xxx"   # GitHub personal access token
 repo = "owner/repo" # This is main github classroom repo
 
 [db]
