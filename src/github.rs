@@ -103,4 +103,6 @@ impl GitHubClient {
             .expect("failed to execute git clone command");
     }
 
+    pub async fn send_comment_on_line(&self, owner: String, repo: String){}
+
 }
