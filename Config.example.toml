@@ -5,5 +5,10 @@ poll_interval_secs = 60
 token = "ghp_xxx"   # GitHub personal access token
 repo = "owner/repo" # This is main github classroom repo
 
+[openai]
+api_key = "sk-xxx"  # OpenAI API key
+model = "gpt-4o-mini"
+base_url = "https://api.openai.com/v1" # optional, defaults to OpenAI
+
 [db]
 url = "sqlite://corrode.db"
