@@ -1,5 +1,6 @@
 use reqwest::Client;
 
+use super::models::GithubRepo;
 use super::models::{PullRequest, PullRequestFile, ReviewDecision, ReviewResult};
 
 #[derive(Debug, Clone)]
@@ -29,6 +30,38 @@ impl GitHubClient {
             .error_for_status()?
             .json()
             .await
+    }
+
+    pub async fn list_organization_repositories(
+        &self,
+        organization: &str,
+    ) -> Result<Vec<GithubRepo>, reqwest::Error> {
+        let mut repositories = Vec::new();
+        let mut page = 1;
+
+        loop {
+            let url = format!(
+                "https://api.github.com/orgs/{organization}/repos?type=all&per_page=100&page={page}"
+            );
+            let page_repositories: Vec<GithubRepo> = self
+                .client
+                .get(url)
+                .headers(self.headers())
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            let page_size = page_repositories.len();
+            repositories.extend(page_repositories);
+
+            if page_size < 100 {
+                break;
+            }
+            page += 1;
+        }
+
+        Ok(repositories)
     }
 
     pub async fn fetch_pr_info(
