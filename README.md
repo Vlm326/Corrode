@@ -11,10 +11,6 @@ Open-source AI homework checker for GitHub Classroom-style courses. Corrode watc
 2. **Review** — sends the PR title, description, and file diffs to an OpenAI-compatible API, which returns a structured verdict: summary, decision (`approve` / `request_changes` / `comment`), and per-line comments with severity.
 3. **Post** — submits the review back to GitHub (`APPROVE` / `REQUEST_CHANGES` / `COMMENT`) and records the result in SQLite, so a commit is never reviewed twice.
 
-## Why Rust
-
-Built in Rust, so it's fast, reliable, and single-binary deployable — it polls GitHub continuously and reviews PRs without eating your resources.
-
 ## Configuration
 
 Copy `Config.example.toml` to `Config.toml` and fill in your GitHub token and OpenAI API key:
