@@ -52,10 +52,32 @@ impl Application {
     }
 
     async fn process_once(&self) -> Result<(), AppError> {
-        let (owner, repo) = self
+        let organization = self
             .config
-            .github_repo_parts()
+            .github_organization()
             .map_err(AppError::Repository)?;
+        let repositories = self
+            .github
+            .list_organization_repositories(organization)
+            .await?;
+
+        for github_repository in repositories {
+            let Some((owner, repo)) = github_repository.full_name.split_once('/') else {
+                eprintln!(
+                    "skipping repository with invalid full name: {}",
+                    github_repository.full_name
+                );
+                continue;
+            };
+
+            if let Err(error) = self.process_repository(owner, repo).await {
+                eprintln!("repository {}/{} failed: {error}", owner, repo);
+            }
+        }
+        Ok(())
+    }
+
+    async fn process_repository(&self, owner: &str, repo: &str) -> Result<(), AppError> {
         let repository = format!("{owner}/{repo}");
         let pull_requests = self.github.list_open_pull_requests(owner, repo).await?;
 
@@ -76,7 +98,7 @@ impl Application {
                 .process_pr(owner, repo, &repository, listed_pr.number)
                 .await
             {
-                eprintln!("PR #{} failed: {error}", listed_pr.number);
+                eprintln!("{repository} PR #{} failed: {error}", listed_pr.number);
                 db::save_review(
                     &self.pool,
                     &repository,
