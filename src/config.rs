@@ -16,7 +16,7 @@ pub struct AppConfig {
 #[derive(Deserialize, Debug, Clone)]
 pub struct GithubConfig {
     pub token: String,
-    pub repo: String,
+    pub organization: String,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -42,10 +42,11 @@ impl Config {
         Ok(toml::from_str(&config_str)?)
     }
 
-    pub fn github_repo_parts(&self) -> Result<(&str, &str), String> {
-        self.github
-            .repo
-            .split_once('/')
-            .ok_or_else(|| "github.repo must have the form owner/repository".to_string())
+    pub fn github_organization(&self) -> Result<&str, String> {
+        let organization = self.github.organization.trim();
+        if organization.is_empty() || organization.contains('/') {
+            return Err("github.organization must be a non-empty organization name".to_string());
+        }
+        Ok(organization)
     }
 }
