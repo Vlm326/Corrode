@@ -1,4 +1,7 @@
 use reqwest::Client;
+use std::time::Duration;
+use tokio::time::sleep;
+use tracing::{error, warn};
 
 use super::models::GithubRepo;
 use super::models::{PullRequest, PullRequestFile, ReviewDecision, ReviewResult};
@@ -11,7 +14,11 @@ pub struct GitHubClient {
 
 impl GitHubClient {
     pub fn new(token: String) -> Result<Self, reqwest::Error> {
-        let client = Client::builder().user_agent("corrode-review-bot").build()?;
+        let client = Client::builder()
+            .user_agent("corrode-review-bot")
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            .build()?;
         Ok(Self { client, token })
     }
 
@@ -27,10 +34,7 @@ impl GitHubClient {
                 "https://api.github.com/repos/{owner}/{repo}/pulls?state=open&per_page=100&page={page}"
             );
             let page_pull_requests: Vec<PullRequest> = self
-                .client
-                .get(url)
-                .headers(self.headers())
-                .send()
+                .send_get(&url)
                 .await?
                 .error_for_status()?
                 .json()
@@ -57,10 +61,7 @@ impl GitHubClient {
                 "https://api.github.com/orgs/{organization}/repos?type=all&per_page=100&page={page}"
             );
             let page_repositories: Vec<GithubRepo> = self
-                .client
-                .get(url)
-                .headers(self.headers())
-                .send()
+                .send_get(&url)
                 .await?
                 .error_for_status()?
                 .json()
@@ -84,14 +85,7 @@ impl GitHubClient {
         pr_number: u64,
     ) -> Result<PullRequest, reqwest::Error> {
         let url = format!("https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}");
-        self.client
-            .get(url)
-            .headers(self.headers())
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await
+        self.send_get(&url).await?.error_for_status()?.json().await
     }
 
     pub async fn fetch_pr_files(
@@ -107,10 +101,7 @@ impl GitHubClient {
                 "https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/files?per_page=100&page={page}"
             );
             let page_files: Vec<PullRequestFile> = self
-                .client
-                .get(url)
-                .headers(self.headers())
-                .send()
+                .send_get(&url)
                 .await?
                 .error_for_status()?
                 .json()
@@ -204,6 +195,27 @@ impl GitHubClient {
                 .expect("valid accept header"),
         );
         headers
+    }
+
+    async fn send_get(&self, url: &str) -> Result<reqwest::Response, reqwest::Error> {
+        let attempts = 3;
+        for attempt in 1..=attempts {
+            match self.client.get(url).headers(self.headers()).send().await {
+                Ok(response) => return Ok(response),
+                Err(error) if attempt < attempts => {
+                    warn!(
+                        attempt,
+                        attempts,
+                        %url,
+                        %error,
+                        "GitHub GET failed, retrying"
+                    );
+                    sleep(Duration::from_secs(attempt as u64 * 2)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        unreachable!()
     }
 }
 
