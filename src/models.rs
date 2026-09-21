@@ -70,8 +70,11 @@ pub struct PullRequest {
     pub user: GithubUser,
     pub head: PullRequestRef,
     pub base: PullRequestRef,
+    #[serde(default)]
     pub changed_files: u64,
+    #[serde(default)]
     pub additions: u64,
+    #[serde(default)]
     pub deletions: u64,
 }
 #[derive(Debug, Clone, Deserialize)]
