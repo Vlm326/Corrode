@@ -27,7 +27,6 @@ pub struct SourceFile {
 }
 
 pub async fn clone_and_read_sources(
-    token: &str,
     repository: &str,
     commit_sha: &str,
     files: &[PullRequestFile],
@@ -40,7 +39,7 @@ pub async fn clone_and_read_sources(
             .map_err(|error| RunnerError::Git(error.to_string()))?;
     }
 
-    let result = clone_commit(token, repository, commit_sha, &worktree).await;
+    let result = clone_commit(repository, commit_sha, &worktree).await;
     let sources = match result {
         Ok(()) => read_changed_sources(&worktree, files).await,
         Err(error) => Err(error),
@@ -52,13 +51,12 @@ pub async fn clone_and_read_sources(
 }
 
 async fn clone_commit(
-    token: &str,
     repository: &str,
     commit_sha: &str,
     worktree: &Path,
 ) -> Result<(), RunnerError> {
-    let url = format!("https://github.com/{repository}.git");
-    let clone = git_command(token)
+    let url = format!("git@github.com:{repository}.git");
+    let clone = git_command()
         .args([
             "clone",
             "--no-checkout",
@@ -74,7 +72,7 @@ async fn clone_commit(
         return Err(RunnerError::Git(command_output(&clone.stderr)));
     }
 
-    let fetch = git_command(token)
+    let fetch = git_command()
         .args([
             "-C",
             worktree.to_string_lossy().as_ref(),
@@ -90,7 +88,7 @@ async fn clone_commit(
         return Err(RunnerError::Git(command_output(&fetch.stderr)));
     }
 
-    let checkout = git_command(token)
+    let checkout = git_command()
         .args([
             "-C",
             worktree.to_string_lossy().as_ref(),
@@ -108,15 +106,8 @@ async fn clone_commit(
     Ok(())
 }
 
-fn git_command(token: &str) -> Command {
-    let mut command = Command::new("git");
-    command.env("GIT_CONFIG_COUNT", "1");
-    command.env("GIT_CONFIG_KEY_0", "http.extraheader");
-    command.env(
-        "GIT_CONFIG_VALUE_0",
-        format!("AUTHORIZATION: bearer {token}"),
-    );
-    command
+fn git_command() -> Command {
+    Command::new("git")
 }
 
 async fn read_changed_sources(
