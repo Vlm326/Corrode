@@ -301,3 +301,19 @@ pub async fn delete_student(pool: &Pool<Sqlite>, id: i64) -> Result<(), sqlx::Er
         .await?;
     Ok(())
 }
+
+pub async fn database_summary(pool: &Pool<Sqlite>) -> Result<(i64, i64, i64, i64), sqlx::Error> {
+    let students: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM students")
+        .fetch_one(pool)
+        .await?;
+    let assignments: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM assignments")
+        .fetch_one(pool)
+        .await?;
+    let repositories: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM student_repositories")
+        .fetch_one(pool)
+        .await?;
+    let submissions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM submissions")
+        .fetch_one(pool)
+        .await?;
+    Ok((students, assignments, repositories, submissions))
+}
