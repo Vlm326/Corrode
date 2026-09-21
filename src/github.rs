@@ -20,16 +20,29 @@ impl GitHubClient {
         owner: &str,
         repo: &str,
     ) -> Result<Vec<PullRequest>, reqwest::Error> {
-        let url =
-            format!("https://api.github.com/repos/{owner}/{repo}/pulls?state=open&per_page=100");
-        self.client
-            .get(url)
-            .headers(self.headers())
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await
+        let mut pull_requests = Vec::new();
+        let mut page = 1;
+        loop {
+            let url = format!(
+                "https://api.github.com/repos/{owner}/{repo}/pulls?state=open&per_page=100&page={page}"
+            );
+            let page_pull_requests: Vec<PullRequest> = self
+                .client
+                .get(url)
+                .headers(self.headers())
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            let page_size = page_pull_requests.len();
+            pull_requests.extend(page_pull_requests);
+            if page_size < 100 {
+                break;
+            }
+            page += 1;
+        }
+        Ok(pull_requests)
     }
 
     pub async fn list_organization_repositories(
@@ -87,16 +100,29 @@ impl GitHubClient {
         repo: &str,
         pr_number: u64,
     ) -> Result<Vec<PullRequestFile>, reqwest::Error> {
-        let url = format!("https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/files");
-        let url = format!("{url}?per_page=100");
-        self.client
-            .get(url)
-            .headers(self.headers())
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await
+        let mut files = Vec::new();
+        let mut page = 1;
+        loop {
+            let url = format!(
+                "https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/files?per_page=100&page={page}"
+            );
+            let page_files: Vec<PullRequestFile> = self
+                .client
+                .get(url)
+                .headers(self.headers())
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            let page_size = page_files.len();
+            files.extend(page_files);
+            if page_size < 100 {
+                break;
+            }
+            page += 1;
+        }
+        Ok(files)
     }
 
     pub async fn submit_review(
