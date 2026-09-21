@@ -5,7 +5,12 @@ use super::csv::StudentRow;
 use super::models::ReviewResult;
 
 pub async fn create_db(config: &Config) -> Result<Pool<Sqlite>, sqlx::Error> {
-    let pool = SqlitePool::connect(&config.db.url).await?;
+    let options = config
+        .db
+        .url
+        .parse::<sqlx::sqlite::SqliteConnectOptions>()?
+        .create_if_missing(true);
+    let pool = SqlitePool::connect_with(options).await?;
     sqlx::query("PRAGMA foreign_keys = ON")
         .execute(&pool)
         .await?;
