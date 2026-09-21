@@ -10,6 +10,12 @@ use super::github::GitHubClient;
 use super::reviewer::Reviewer;
 use super::runner;
 
+#[derive(Debug, Default)]
+pub struct RunOptions {
+    pub student: Option<String>,
+    pub once: bool,
+}
+
 #[derive(Debug, Error)]
 pub enum AppError {
     #[error("invalid GitHub repository configuration: {0}")]
@@ -29,6 +35,7 @@ pub struct Application {
     pool: Pool<Sqlite>,
     github: GitHubClient,
     reviewer: Reviewer,
+    options: RunOptions,
 }
 
 impl Application {
@@ -37,29 +44,41 @@ impl Application {
         pool: Pool<Sqlite>,
         github: GitHubClient,
         reviewer: Reviewer,
+        options: RunOptions,
     ) -> Self {
         Self {
             config,
             pool,
             github,
             reviewer,
+            options,
         }
     }
 
     pub async fn run(&self) -> Result<(), AppError> {
         info!(
             interval_secs = self.config.app.poll_interval_secs,
+            student = ?self.options.student,
+            once = self.options.once,
             "application started"
         );
         loop {
             if let Err(error) = self.process_once().await {
                 error!(%error, "poll failed");
             }
+            if self.options.once {
+                info!("single polling iteration completed");
+                return Ok(());
+            }
             tokio::time::sleep(Duration::from_secs(self.config.app.poll_interval_secs)).await;
         }
     }
 
-    async fn process_once(&self) -> Result<(), AppError> {
+    pub fn set_student(&mut self, student: Option<String>) {
+        self.options.student = student;
+    }
+
+    pub async fn process_once(&self) -> Result<(), AppError> {
         let organization = self
             .config
             .github_organization()
@@ -75,6 +94,11 @@ impl Application {
         );
 
         for github_repository in repositories {
+            if let Some(student) = &self.options.student {
+                if !repository_belongs_to_student(&github_repository.full_name, student) {
+                    continue;
+                }
+            }
             let Some((owner, repo)) = github_repository.full_name.split_once('/') else {
                 warn!(repository = %github_repository.full_name, "skipping repository with invalid full name");
                 continue;
@@ -157,13 +181,8 @@ impl Application {
             .as_ref()
             .map(|repository| repository.full_name.as_str())
             .unwrap_or(repository);
-        let sources = runner::clone_and_read_sources(
-            &self.config.github.token,
-            source_repository,
-            &pr.head.sha,
-            &files,
-        )
-        .await?;
+        let sources =
+            runner::clone_and_read_sources(source_repository, &pr.head.sha, &files).await?;
         let result = self.reviewer.review(&pr, &files, &sources).await?;
         self.github
             .submit_review(owner, repo, number, &result, &pr.head.sha)
@@ -204,4 +223,12 @@ impl Application {
         db::add_submission(&self.pool, student_id, assignment_id, commit_sha, status).await?;
         Ok(())
     }
+}
+
+fn repository_belongs_to_student(repository: &str, student: &str) -> bool {
+    let repository_name = repository.rsplit('/').next().unwrap_or(repository);
+    let suffix = format!("-{student}");
+    repository_name
+        .to_ascii_lowercase()
+        .ends_with(&suffix.to_ascii_lowercase())
 }
