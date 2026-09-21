@@ -12,3 +12,4 @@ base_url = "https://api.openai.com/v1" # optional, defaults to OpenAI
 
 [db]
 url = "sqlite://corrode.db"
+students_csv = "Rust 2026 - основной лист.csv" # Google Sheets CSV export

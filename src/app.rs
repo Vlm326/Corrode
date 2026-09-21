@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use sqlx::{Pool, Sqlite};
 use thiserror::Error;
+use tracing::{error, info, warn};
 
 use super::config::Config;
 use super::db;
@@ -46,9 +47,13 @@ impl Application {
     }
 
     pub async fn run(&self) -> Result<(), AppError> {
+        info!(
+            interval_secs = self.config.app.poll_interval_secs,
+            "application started"
+        );
         loop {
             if let Err(error) = self.process_once().await {
-                eprintln!("poll failed: {error}");
+                error!(%error, "poll failed");
             }
             tokio::time::sleep(Duration::from_secs(self.config.app.poll_interval_secs)).await;
         }
@@ -63,18 +68,22 @@ impl Application {
             .github
             .list_organization_repositories(organization)
             .await?;
+        info!(
+            organization,
+            count = repositories.len(),
+            "repositories loaded"
+        );
 
         for github_repository in repositories {
             let Some((owner, repo)) = github_repository.full_name.split_once('/') else {
-                eprintln!(
-                    "skipping repository with invalid full name: {}",
-                    github_repository.full_name
-                );
+                warn!(repository = %github_repository.full_name, "skipping repository with invalid full name");
                 continue;
             };
 
+            db::sync_repository(&self.pool, &github_repository.full_name).await?;
+
             if let Err(error) = self.process_repository(owner, repo).await {
-                eprintln!("repository {}/{} failed: {error}", owner, repo);
+                error!(repository = %format_args!("{owner}/{repo}"), %error, "repository processing failed");
             }
         }
         Ok(())
@@ -83,6 +92,7 @@ impl Application {
     async fn process_repository(&self, owner: &str, repo: &str) -> Result<(), AppError> {
         let repository = format!("{owner}/{repo}");
         let pull_requests = self.github.list_open_pull_requests(owner, repo).await?;
+        info!(%repository, count = pull_requests.len(), "open pull requests loaded");
 
         for listed_pr in pull_requests {
             if listed_pr.draft
@@ -101,7 +111,12 @@ impl Application {
                 .process_pr(owner, repo, &repository, listed_pr.number)
                 .await
             {
-                eprintln!("{repository} PR #{} failed: {error}", listed_pr.number);
+                error!(
+                    %repository,
+                    pr = listed_pr.number,
+                    %error,
+                    "pull request processing failed"
+                );
                 db::save_review(
                     &self.pool,
                     &repository,
@@ -109,6 +124,13 @@ impl Application {
                     &listed_pr.head.sha,
                     "failed",
                     None,
+                )
+                .await?;
+                self.save_submission(
+                    &listed_pr.user.login,
+                    &repository,
+                    &listed_pr.head.sha,
+                    "failed",
                 )
                 .await?;
             }
@@ -128,6 +150,7 @@ impl Application {
             return Ok(());
         }
         let files = self.github.fetch_pr_files(owner, repo, number).await?;
+        info!(%repository, pr = number, file_count = files.len(), "starting pull request review");
         let source_repository = pr
             .head
             .repo
@@ -154,7 +177,31 @@ impl Application {
             Some(&result),
         )
         .await?;
-        println!("Reviewed {repository}#{number}");
+        self.save_submission(&pr.user.login, repository, &pr.head.sha, "published")
+            .await?;
+        info!(%repository, pr = number, "pull request reviewed and published");
+        Ok(())
+    }
+
+    async fn save_submission(
+        &self,
+        github: &str,
+        repository: &str,
+        commit_sha: &str,
+        status: &str,
+    ) -> Result<(), AppError> {
+        let Some((student_id, assignment_id)) =
+            db::find_student_assignment(&self.pool, github, repository).await?
+        else {
+            warn!(
+                %github,
+                %repository,
+                "submission not recorded: student/assignment mapping not found"
+            );
+            return Ok(());
+        };
+
+        db::add_submission(&self.pool, student_id, assignment_id, commit_sha, status).await?;
         Ok(())
     }
 }

@@ -2,6 +2,7 @@ use std::path::{Component, Path, PathBuf};
 
 use thiserror::Error;
 use tokio::process::Command;
+use tracing::{debug, info};
 
 use super::models::PullRequestFile;
 
@@ -32,6 +33,7 @@ pub async fn clone_and_read_sources(
     files: &[PullRequestFile],
 ) -> Result<Vec<SourceFile>, RunnerError> {
     let worktree = temporary_worktree(repository, commit_sha);
+    info!(%repository, %commit_sha, "cloning pull request commit");
     if worktree.exists() {
         tokio::fs::remove_dir_all(&worktree)
             .await
@@ -45,6 +47,7 @@ pub async fn clone_and_read_sources(
     };
 
     let _ = tokio::fs::remove_dir_all(&worktree).await;
+    debug!(%repository, %commit_sha, "temporary checkout removed");
     sources
 }
 

@@ -30,10 +30,16 @@ pub struct OpenAiConfig {
 #[derive(Deserialize, Debug, Clone)]
 pub struct DbConfig {
     pub url: String,
+    #[serde(default = "default_students_csv")]
+    pub students_csv: String,
 }
 
 fn default_openai_url() -> String {
     "https://api.openai.com/v1".to_string()
+}
+
+fn default_students_csv() -> String {
+    "students.csv".to_string()
 }
 
 impl Config {
