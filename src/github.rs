@@ -143,15 +143,50 @@ impl GitHubClient {
             body: format_review_body(review),
             event,
             commit_id: commit_sha,
+            comments: review
+                .comments
+                .iter()
+                .map(|comment| InlineComment {
+                    path: comment.file.clone(),
+                    line: comment.line,
+                    side: "RIGHT",
+                    body: comment.body.clone(),
+                })
+                .collect(),
         };
-        self.client
+        let response = self
+            .client
             .post(url)
             .headers(self.headers())
             .json(&body)
             .send()
-            .await?
-            .error_for_status()?;
-        Ok(())
+            .await?;
+        if response.status().is_success() {
+            return Ok(());
+        }
+
+        // GitHub rejects the whole review when a model points to a line outside the diff.
+        // Preserve the review by retrying it as a summary-only review.
+        if response.status() == reqwest::StatusCode::UNPROCESSABLE_ENTITY
+            && !body.comments.is_empty()
+        {
+            let fallback = ReviewBody {
+                comments: Vec::new(),
+                ..body
+            };
+            self.client
+                .post(format!(
+                    "https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
+                ))
+                .headers(self.headers())
+                .json(&fallback)
+                .send()
+                .await?
+                .error_for_status()?;
+            return Ok(());
+        }
+
+        Err(response.error_for_status().unwrap_err())
     }
 
     fn headers(&self) -> reqwest::header::HeaderMap {
@@ -177,6 +212,15 @@ struct ReviewBody<'a> {
     body: String,
     event: &'a str,
     commit_id: &'a str,
+    comments: Vec<InlineComment>,
+}
+
+#[derive(serde::Serialize)]
+struct InlineComment {
+    path: String,
+    line: u64,
+    side: &'static str,
+    body: String,
 }
 
 fn format_review_body(review: &ReviewResult) -> String {
