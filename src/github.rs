@@ -156,9 +156,17 @@ impl GitHubClient {
             return Ok(());
         }
 
+        let response_error = response.error_for_status_ref().unwrap_err();
+        let response_body = response.text().await.unwrap_or_default();
+        error!(
+            status = %response_error,
+            body = %response_body,
+            "GitHub review request rejected"
+        );
+
         // GitHub rejects the whole review when a model points to a line outside the diff.
         // Preserve the review by retrying it as a summary-only review.
-        if response.status() == reqwest::StatusCode::UNPROCESSABLE_ENTITY
+        if response_error.status() == Some(reqwest::StatusCode::UNPROCESSABLE_ENTITY)
             && !body.comments.is_empty()
         {
             let fallback = ReviewBody {
@@ -177,7 +185,7 @@ impl GitHubClient {
             return Ok(());
         }
 
-        Err(response.error_for_status().unwrap_err())
+        Err(response_error)
     }
 
     fn headers(&self) -> reqwest::header::HeaderMap {
