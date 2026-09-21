@@ -39,7 +39,7 @@ pub async fn review_exists(
     commit_sha: &str,
 ) -> Result<bool, sqlx::Error> {
     let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM reviews WHERE repository = ? AND pr_number = ? AND commit_sha = ?",
+        "SELECT COUNT(*) FROM reviews WHERE repository = ? AND pr_number = ? AND commit_sha = ? AND status IN ('reviewed', 'published')",
     )
     .bind(repository)
     .bind(pr_number as i64)
