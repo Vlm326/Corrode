@@ -19,3 +19,6 @@ response.jsoncurl
 
 # SQLite databases
 *.db
+
+# Student roster CSVs (personal data)
+*.csv
