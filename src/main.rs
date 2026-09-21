@@ -1,6 +1,9 @@
+use std::fs::OpenOptions;
 use tokio;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
+
+use app::RunOptions;
 
 mod app;
 mod config;
@@ -10,10 +13,18 @@ mod github;
 mod models;
 mod reviewer;
 mod runner;
+mod tui;
 
 #[tokio::main]
 async fn main() {
+    let log_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("corrode.log")
+        .expect("failed to open corrode.log");
     tracing_subscriber::fmt()
+        .with_writer(log_file)
+        .with_ansi(false)
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
@@ -21,6 +32,7 @@ async fn main() {
 
     if let Err(error) = run().await {
         error!(%error, "fatal error");
+        eprintln!("fatal error: {error}");
         std::process::exit(1);
     }
 }
@@ -39,7 +51,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         config.openai.model.clone(),
         config.openai.base_url.clone(),
     )?;
-    let application = app::Application::new(config, pool, github, reviewer);
-    application.run().await?;
+    let application = app::Application::new(
+        config.clone(),
+        pool.clone(),
+        github,
+        reviewer,
+        RunOptions::default(),
+    );
+    tui::run(application, pool, config).await?;
     Ok(())
 }
