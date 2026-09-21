@@ -20,5 +20,8 @@ response.jsoncurl
 # SQLite databases
 *.db
 
+# Runtime logs
+corrode.log
+
 # Student roster CSVs (personal data)
 *.csv
