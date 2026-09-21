@@ -7,6 +7,7 @@ use super::config::Config;
 use super::db;
 use super::github::GitHubClient;
 use super::reviewer::Reviewer;
+use super::runner;
 
 #[derive(Debug, Error)]
 pub enum AppError {
@@ -18,6 +19,8 @@ pub enum AppError {
     Github(#[from] reqwest::Error),
     #[error("reviewer error: {0}")]
     Reviewer(#[from] super::reviewer::ReviewerError),
+    #[error("runner error: {0}")]
+    Runner(#[from] super::runner::RunnerError),
 }
 
 pub struct Application {
@@ -125,7 +128,20 @@ impl Application {
             return Ok(());
         }
         let files = self.github.fetch_pr_files(owner, repo, number).await?;
-        let result = self.reviewer.review(&pr, &files).await?;
+        let source_repository = pr
+            .head
+            .repo
+            .as_ref()
+            .map(|repository| repository.full_name.as_str())
+            .unwrap_or(repository);
+        let sources = runner::clone_and_read_sources(
+            &self.config.github.token,
+            source_repository,
+            &pr.head.sha,
+            &files,
+        )
+        .await?;
+        let result = self.reviewer.review(&pr, &files, &sources).await?;
         self.github
             .submit_review(owner, repo, number, &result, &pr.head.sha)
             .await?;
@@ -134,7 +150,7 @@ impl Application {
             repository,
             number,
             &pr.head.sha,
-            "reviewed",
+            "published",
             Some(&result),
         )
         .await?;
