@@ -27,3 +27,9 @@ base_url = "https://api.openai.com/v1" # optional, defaults to OpenAI
 ```
 
 `Config.toml` is git-ignored — only the example is committed.
+
+## Checkout and state
+
+Before each review, Corrode clones the pull request head repository at the exact commit SHA into a temporary directory. Changed text files are read from that checkout and sent to the model together with the GitHub diff. The temporary directory is removed after processing.
+
+Review state is stored in SQLite. A successful `published` (or legacy `reviewed`) record for the same repository, PR number, and commit SHA is skipped. Failed attempts are retried on a later polling iteration.
