@@ -274,12 +274,5 @@ struct InlineComment {
 }
 
 fn format_review_body(review: &ReviewResult) -> String {
-    let mut body = format!("## Corrode review\n\n{}", review.summary);
-    for comment in &review.comments {
-        body.push_str(&format!(
-            "\n\n- **{}:{} ({:?})** {}",
-            comment.file, comment.line, comment.severity, comment.body
-        ));
-    }
-    body
+    review.summary.clone()
 }
