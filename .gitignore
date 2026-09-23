@@ -25,3 +25,6 @@ corrode.log
 
 # Student roster CSVs (personal data)
 *.csv
+
+# Assignment statements (course content)
+problems statements/
