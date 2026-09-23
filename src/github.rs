@@ -145,47 +145,64 @@ impl GitHubClient {
                 })
                 .collect(),
         };
-        let response = self
-            .client
-            .post(url)
-            .headers(self.headers())
-            .json(&body)
-            .send()
-            .await?;
-        if response.status().is_success() {
-            return Ok(());
-        }
-
-        let response_error = response.error_for_status_ref().unwrap_err();
-        let response_body = response.text().await.unwrap_or_default();
-        error!(
-            status = %response_error,
-            body = %response_body,
-            "GitHub review request rejected"
-        );
-
-        // GitHub rejects the whole review when a model points to a line outside the diff.
-        // Preserve the review by retrying it as a summary-only review.
-        if response_error.status() == Some(reqwest::StatusCode::UNPROCESSABLE_ENTITY)
-            && !body.comments.is_empty()
-        {
-            let fallback = ReviewBody {
-                comments: Vec::new(),
-                ..body
-            };
-            self.client
-                .post(format!(
-                    "https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
-                ))
+        for attempt in 1..=3 {
+            let response = match self
+                .client
+                .post(&url)
                 .headers(self.headers())
-                .json(&fallback)
+                .json(&body)
                 .send()
-                .await?
-                .error_for_status()?;
-            return Ok(());
+                .await
+            {
+                Ok(response) => response,
+                Err(error) if attempt < 3 => {
+                    warn!(attempt, %error, "GitHub review request failed, retrying");
+                    sleep(Duration::from_secs(attempt as u64 * 2)).await;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+
+            if response.status().is_success() {
+                return Ok(());
+            }
+
+            let status = response.status();
+            let response_error = response.error_for_status_ref().unwrap_err();
+            let response_body = response.text().await.unwrap_or_default();
+            error!(
+                status = %status,
+                body = %response_body,
+                attempt,
+                "GitHub review request rejected"
+            );
+
+            // GitHub rejects the whole review when a model points to a line outside the diff.
+            // Preserve the review by retrying it as a summary-only review.
+            if status == reqwest::StatusCode::UNPROCESSABLE_ENTITY && !body.comments.is_empty() {
+                let fallback = ReviewBody {
+                    comments: Vec::new(),
+                    ..body
+                };
+                self.client
+                    .post(&url)
+                    .headers(self.headers())
+                    .json(&fallback)
+                    .send()
+                    .await?
+                    .error_for_status()?;
+                return Ok(());
+            }
+
+            if is_retryable_status(status) && attempt < 3 {
+                sleep(Duration::from_secs(attempt as u64 * 2)).await;
+                continue;
+            }
+
+            return Err(response_error);
         }
 
-        Err(response_error)
+        unreachable!()
     }
 
     fn headers(&self) -> reqwest::header::HeaderMap {
@@ -225,6 +242,19 @@ impl GitHubClient {
         }
         unreachable!()
     }
+}
+
+fn is_retryable_status(status: reqwest::StatusCode) -> bool {
+    matches!(
+        status,
+        reqwest::StatusCode::REQUEST_TIMEOUT
+            | reqwest::StatusCode::TOO_EARLY
+            | reqwest::StatusCode::TOO_MANY_REQUESTS
+            | reqwest::StatusCode::INTERNAL_SERVER_ERROR
+            | reqwest::StatusCode::BAD_GATEWAY
+            | reqwest::StatusCode::SERVICE_UNAVAILABLE
+            | reqwest::StatusCode::GATEWAY_TIMEOUT
+    )
 }
 
 #[derive(serde::Serialize)]
