@@ -1,4 +1,5 @@
 use std::io::{self, IsTerminal, Write};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crossterm::cursor::{Hide, MoveTo, Show};
@@ -180,12 +181,24 @@ async fn run_once(
     application: &Application,
     student: Option<String>,
 ) -> Screen {
-    let _ = draw_running(stdout, student.as_deref());
-    match application.process_once().await {
-        Ok(()) => Screen::Message("polling iteration completed".to_string()),
-        Err(error) => {
-            error!(%error, "one-shot polling failed");
-            Screen::Message(format!("polling failed: {error}"))
+    let status = application.status_handle();
+    let operation = application.process_once();
+    tokio::pin!(operation);
+
+    loop {
+        tokio::select! {
+            result = &mut operation => {
+                return match result {
+                    Ok(()) => Screen::Message("polling iteration completed".to_string()),
+                    Err(error) => {
+                        error!(%error, "one-shot polling failed");
+                        Screen::Message(format!("polling failed: {error}"))
+                    }
+                };
+            }
+            _ = tokio::time::sleep(Duration::from_millis(250)) => {
+                let _ = draw_running(stdout, student.as_deref(), &status);
+            }
         }
     }
 }
@@ -196,13 +209,14 @@ async fn run_continuous(
     student: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let selected_student = student.clone();
+    let status = application.status_handle();
     application.set_student(student);
     tokio::spawn(async move {
         let _ = application.run().await;
     });
 
     loop {
-        draw_running(stdout, selected_student.as_deref())?;
+        draw_running(stdout, selected_student.as_deref(), &status)?;
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(KeyEvent { code, .. }) = event::read()? {
                 if matches!(code, KeyCode::Char('q') | KeyCode::Esc) {
@@ -416,8 +430,16 @@ fn draw_settings(stdout: &mut io::Stdout, config: &Config, width: usize) -> io::
     )
 }
 
-fn draw_running(stdout: &mut io::Stdout, student: Option<&str>) -> io::Result<()> {
+fn draw_running(
+    stdout: &mut io::Stdout,
+    student: Option<&str>,
+    status: &Arc<Mutex<String>>,
+) -> io::Result<()> {
     let (width, _) = terminal::size()?;
+    let status = status
+        .lock()
+        .map(|status| status.clone())
+        .unwrap_or_else(|_| "Выполнение...".to_string());
     queue!(
         stdout,
         Clear(ClearType::All),
@@ -443,7 +465,7 @@ fn draw_running(stdout: &mut io::Stdout, student: Option<&str>) -> io::Result<()
     queue!(
         stdout,
         SetForegroundColor(Color::DarkGrey),
-        Print(center_line("Please wait...", width as usize)),
+        Print(center_line(&status, width as usize)),
         ResetColor,
         Print("\r\n")
     )?;
