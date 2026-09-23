@@ -29,8 +29,14 @@ pub struct ChatResponse {
 #[derive(Debug, Deserialize)]
 pub struct Choice {
     pub index: u64,
-    pub message: Message,
-    pub finish_reason: String,
+    pub message: ResponseMessage,
+    pub finish_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResponseMessage {
+    pub role: String,
+    pub content: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
