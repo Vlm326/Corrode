@@ -1,3 +1,4 @@
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use sqlx::{Pool, Sqlite};
@@ -36,6 +37,7 @@ pub struct Application {
     github: GitHubClient,
     reviewer: Reviewer,
     options: RunOptions,
+    status: Arc<Mutex<String>>,
 }
 
 impl Application {
@@ -52,6 +54,17 @@ impl Application {
             github,
             reviewer,
             options,
+            status: Arc::new(Mutex::new("Ожидание запуска".to_string())),
+        }
+    }
+
+    pub fn status_handle(&self) -> Arc<Mutex<String>> {
+        Arc::clone(&self.status)
+    }
+
+    fn set_status(&self, status: impl Into<String>) {
+        if let Ok(mut current) = self.status.lock() {
+            *current = status.into();
         }
     }
 
@@ -79,6 +92,7 @@ impl Application {
     }
 
     pub async fn process_once(&self) -> Result<(), AppError> {
+        self.set_status("Загрузка списка репозиториев GitHub...");
         let organization = self
             .config
             .github_organization()
@@ -104,6 +118,8 @@ impl Application {
                 continue;
             };
 
+            self.set_status(format!("Проверка репозитория {owner}/{repo}..."));
+
             db::sync_repository(&self.pool, &github_repository.full_name).await?;
 
             if let Err(error) = self.process_repository(owner, repo).await {
@@ -115,6 +131,7 @@ impl Application {
 
     async fn process_repository(&self, owner: &str, repo: &str) -> Result<(), AppError> {
         let repository = format!("{owner}/{repo}");
+        self.set_status(format!("Загрузка открытых PR: {repository}..."));
         let pull_requests = self.github.list_open_pull_requests(owner, repo).await?;
         info!(%repository, count = pull_requests.len(), "open pull requests loaded");
 
@@ -169,6 +186,7 @@ impl Application {
         repository: &str,
         number: u64,
     ) -> Result<(), AppError> {
+        self.set_status(format!("Получение данных PR #{number}: {repository}..."));
         let pr = self.github.fetch_pr_info(owner, repo, number).await?;
         if pr.state != "open" || pr.draft {
             return Ok(());
@@ -183,7 +201,16 @@ impl Application {
             .unwrap_or(repository);
         let sources =
             runner::clone_and_read_sources(source_repository, &pr.head.sha, &files).await?;
-        let result = self.reviewer.review(&pr, &files, &sources).await?;
+        self.set_status(format!(
+            "Ожидание ответа модели для PR #{number}: {repository}..."
+        ));
+        let result = self
+            .reviewer
+            .review(&pr, &files, &sources, repository)
+            .await?;
+        self.set_status(format!(
+            "Публикация review для PR #{number}: {repository}..."
+        ));
         self.github
             .submit_review(owner, repo, number, &result, &pr.head.sha)
             .await?;
@@ -199,6 +226,7 @@ impl Application {
         self.save_submission(&pr.user.login, repository, &pr.head.sha, "published")
             .await?;
         info!(%repository, pr = number, "pull request reviewed and published");
+        self.set_status("Текущая итерация завершена");
         Ok(())
     }
 
