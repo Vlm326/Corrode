@@ -101,7 +101,7 @@ SQLite file (path from `db.url`), created on first run:
 
 ## Operational notes
 
-- **Token scopes** — the GitHub token needs read access to the organization's repositories and write permission to submit pull request reviews. Fine-grained tokens work; verify with `./check_github_token.py`.
+- **Token scopes** — the GitHub token needs read access to the organization's repositories and write permission to submit pull request reviews. Fine-grained tokens work; select the required repositories and permissions when creating the token.
 - **SSH** — cloning uses SSH (`git@github.com`), so the host must have an SSH key authorized for the GitHub account and `git` available on `PATH`.
 - **Rate limits** — API calls use `per_page=100` and retry with backoff on transient failures. The default polling interval of 60 s is conservative.
 - **Review output** — the model is instructed to return only valid JSON and never to invent files, lines, or behavior; anything without a safe location goes into the summary.
